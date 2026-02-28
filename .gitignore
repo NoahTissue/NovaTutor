@@ -1,0 +1,16 @@
+# Python Cache
+__pycache__/
+*.pyc
+
+# Virtual Environments
+env/
+venv/
+
+# Logs
+nova_log.txt
+
+# Large Model Files
+models/
+
+# API Keys 
+.env

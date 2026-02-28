@@ -1,0 +1,1166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nova - AI Cognitive Tutor</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;500;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <style>
+        :root {
+            --bg-deep: #020617;
+            --color-idle: #3b82f6;
+            --color-listening: #ff8e3c;
+            --color-processing: #a855f7;
+            --color-speaking: #10b981;
+            --text-primary: #f8fafc;
+            --text-dim: #94a3b8;
+            --fluid-speed: 15s;
+            --current-state-color: #3b82f6;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            user-select: none;
+            cursor: none;
+        }
+
+        body {
+            background-color: var(--bg-deep);
+            color: var(--text-primary);
+            font-family: 'Inter', sans-serif;
+            overflow: hidden;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #app-canvas {
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(circle at 50% 50%, #0f172a 0%, #020617 100%);
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .color-wave {
+            position: fixed;
+            bottom: 140px;
+            left: 140px;
+            width: 0;
+            height: 0;
+            border-radius: 50%;
+            background: radial-gradient(circle, var(--current-state-color), transparent);
+            transform: translate(-50%, 50%);
+            opacity: 0;
+            pointer-events: none;
+            z-index: 2;
+        }
+
+        .color-wave.active {
+            animation: ripple-from-nova 1.5s ease-out forwards;
+        }
+
+        @keyframes ripple-from-nova {
+            0% {
+                width: 0;
+                height: 0;
+                opacity: 0.7;
+            }
+            100% {
+                width: 700px;
+                height: 700px;
+                opacity: 0;
+            }
+        }
+
+        .fluid-layer {
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            z-index: 1;
+            filter: blur(60px);
+            opacity: 0.12;
+            pointer-events: none;
+            transition: all 1s ease;
+        }
+
+        .blob {
+            position: absolute;
+            border-radius: 50%;
+            mix-blend-mode: screen;
+            animation: drift var(--fluid-speed) infinite alternate ease-in-out;
+            transition: all 1s ease;
+        }
+
+        .blob-1 { 
+            width: 600px; 
+            height: 600px; 
+            background: var(--color-idle); 
+            top: 10%; 
+            left: 20%; 
+            animation-delay: 0s; 
+        }
+
+        .blob-2 { 
+            width: 500px; 
+            height: 500px; 
+            background: var(--color-processing); 
+            top: 40%; 
+            left: 50%; 
+            animation-delay: -5s; 
+        }
+
+        .blob-3 { 
+            width: 400px; 
+            height: 400px; 
+            background: #4f46e5; 
+            top: 20%; 
+            left: 70%; 
+            animation-delay: -10s; 
+        }
+
+        .fluid-layer.listening .blob {
+            animation: drift 8s infinite alternate ease-in-out, pulse-blob 2s infinite ease-in-out;
+        }
+
+        .fluid-layer.processing .blob {
+            animation: drift 8s infinite alternate ease-in-out, rotate-blob 6s infinite linear;
+        }
+
+        @keyframes drift {
+            from { transform: translate(0, 0) scale(1) rotate(0deg); }
+            to { transform: translate(100px, 50px) scale(1.1) rotate(20deg); }
+        }
+
+        @keyframes pulse-blob {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.8; transform: scale(1.05); }
+        }
+
+        @keyframes rotate-blob {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        header {
+            position: relative;
+            z-index: 10;
+            padding: 20px 40px 40px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: transparent;
+        }
+        header::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            z-index: -1;
+            /* Creates the dot pattern */
+            background-image: radial-gradient(rgba(42, 44, 65, 0.6) 1.5px, transparent 5px);
+            background-size: 13px 13px; /* Adjust spacing of dots here */
+            /* Fades the dots out at the bottom */
+            mask-image: linear-gradient(to bottom, rgb(0, 0, 0) 40%, transparent 100%);
+            -webkit-mask-image: linear-gradient(to bottom, black 40%, transparent 100%);
+            pointer-events: none;
+        }
+
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .brand-decorator {
+            width: 45px;
+            height: 45px;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .decorator-shape {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, var(--color-idle) 0%, var(--color-processing) 100%);
+            clip-path: polygon(50% 0%, 100% 38%, 82% 100%, 18% 100%, 0% 38%);
+            box-shadow: 0 0 20px rgba(59, 130, 246, 0.5);
+            animation: decorator-float 20s ease-in-out infinite;
+            transition: background 0.8s ease, box-shadow 0.8s ease;
+            transform-origin: center center;
+        }
+
+        .decorator-shape.listening {
+            background: var(--color-listening);
+            box-shadow: 0 0 30px var(--color-listening);
+            animation: decorator-float 20s ease-in-out infinite, pulse-decorator 1.5s ease-in-out infinite;
+        }
+
+        .decorator-shape.processing {
+            background: var(--color-processing);
+            box-shadow: 0 0 30px var(--color-processing);
+            animation: decorator-float 20s ease-in-out infinite, spin-decorator 4s linear infinite;
+        }
+
+        .decorator-shape.speaking {
+            background: var(--color-speaking);
+            box-shadow: 0 0 30px var(--color-speaking);
+            animation: decorator-float 20s ease-in-out infinite, pulse-decorator 0.8s ease-in-out infinite;
+        }
+
+        @keyframes decorator-float {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(0px); }
+        }
+
+        @keyframes pulse-decorator {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.15); }
+        }
+
+        @keyframes spin-decorator {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        .brand-text h1 {
+            font-size: 32px;
+            letter-spacing: 6px;
+            font-weight: 700;
+            text-transform: uppercase;
+            color: var(--text-primary);
+        }
+
+        .uf-tag {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 18px;
+            border: 1px solid rgba(255,255,255,0.1);
+            padding: 10px 12px;
+            border-radius: 4px;
+            background: rgba(255,255,255,0.05);
+        }
+
+        main {
+            position: relative;
+            z-index: 5;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            padding: 0 60px 0 60px;
+            overflow: hidden;
+        }
+
+        #conversation-container {
+        flex: 1;
+
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch; 
+        touch-action: pan-y;
+
+        
+        overflow-x: hidden;
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+        padding: 20px 20px 200px 20px;
+        
+        position: relative; 
+        z-index: 50;
+        }
+
+        #conversation-container::-webkit-scrollbar { 
+            display: none;
+        }
+
+        #conversation-container::after {
+            content: '';
+            display: block;
+            width: 100%;
+            height: 0px;
+            flex-shrink: 0;
+        }
+
+        .scroll-to-bottom {
+            position: fixed;
+            bottom: 250px;
+            right: 60px;
+            width: 50px;
+            height: 50px;
+            background: rgba(59, 130, 246, 0.9);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 20px rgba(59, 130, 246, 0.4);
+            z-index: 120;
+            opacity: 0;
+            pointer-events: none;
+            transition: all 1s ease;
+            cursor: pointer;
+        }
+
+        .scroll-to-bottom.visible {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .scroll-to-bottom::before {
+            content: '↓';
+            font-size: 24px;
+            color: white;
+            font-weight: bold;
+        }
+
+        .scroll-to-bottom:hover {
+            transform: scale(1.1);
+            box-shadow: 0 6px 30px rgba(59, 130, 246, 0.6);
+        }
+
+        .message {
+            max-width: 900px;
+            opacity: 0;
+            transform: translateY(30px);
+          
+            animation: msg-reveal 1.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+            margin-bottom: 20px; 
+            padding: 20px 25px
+        }
+
+
+        @keyframes msg-reveal {
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .msg-nova { 
+            align-self: flex-start;
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: none;
+            border-left: 4px solid var(--color-idle);
+            padding: 25px 30px;
+            border-radius: 0 16px 16px 0;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+            max-width: calc(100% - 220px);
+        }
+
+        .msg-student { 
+            align-self: flex-end;
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: none;
+            border-right: 4px solid var(--color-processing);
+            padding: 25px 30px;
+            border-radius: 16px 0 0 16px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+            max-width: calc(100% - 220px);
+        }
+
+        .msg-label {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 14px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            margin-bottom: 15px;
+            display: block;
+        }
+
+        .msg-nova .msg-label {
+            color: var(--color-idle);
+        }
+
+        .msg-student .msg-label { 
+            color: var(--color-processing);
+            text-align: right;
+        }
+
+        .msg-content {
+            font-size: 30px;
+            line-height: 1.25;
+            font-weight: 400;
+            color: var(--text-primary);
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            position: relative;
+            z-index: 10;
+            letter-spacing: -0.02em;
+        }
+
+        .msg-content p {
+            margin-bottom: 12px;
+        }
+
+        .msg-content p:last-child {
+            margin-bottom: 0;
+        }
+
+        .msg-student .msg-content {
+            text-align: right;
+        }
+
+       
+
+        
+        .emphasis {
+            display: inline;
+            background: rgba(56, 189, 248, 0.25);
+            padding: 3px 8px;
+            border-radius: 5px;
+            font-weight: 700;
+            color: var(--text-primary);
+            position: relative;
+            z-index: 15;
+            animation: emphasis-appear-sky 1.2s ease-in-out forwards;
+        }
+
+        @keyframes emphasis-appear-sky {
+            0% { background: transparent; }
+            50% { background: rgba(56, 189, 248, 0.4); }
+            100% { background: rgba(56, 189, 248, 0.25); }
+        }
+
+        /* Italics - Purple (unchanged) */
+        .italic {
+            display: inline;
+            font-style: italic;
+            color: var(--color-processing);
+            background: rgba(168, 85, 247, 0.15);
+            padding: 3px 8px;
+            border-radius: 5px;
+            position: relative;
+            z-index: 15;
+            animation: italic-appear 1.2s ease-in-out forwards;
+        }
+
+        @keyframes italic-appear {
+            0% { 
+                background: transparent;
+            }
+            50% {
+                background: rgba(168, 85, 247, 0.25);
+            }
+            100% { 
+                background: rgba(168, 85, 247, 0.15);
+            }
+        }
+
+        /* SMOOTH TEXT FADE-IN ANIMATION (Discord/Slack style) */
+        .text-chunk {
+            display: inline;
+            opacity: 0;
+            transform: translateY(5px);
+            animation: smooth-fade-in 2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+
+        @keyframes smooth-fade-in {
+            0% {
+                opacity: 0;
+                transform: translateY(5px);
+                filter: blur(2px);
+            }
+            100% {
+                opacity: 1;
+                transform: translateY(0);
+                filter: blur(0);
+            }
+        }
+
+        .thinking-indicator {
+            position: fixed;
+            bottom: 180px;
+            left: 280px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 22px 35px;
+            background: rgba(15, 23, 42, 0.9);
+            backdrop-filter: blur(10px);
+            border-radius: 1px;
+            border: 1px solid rgba(59, 130, 246, 0.3);
+            z-index: 110;
+            box-shadow: 0 4px 20px rgba(59, 130, 246, 0.3);
+        }
+
+        .thinking-dot {
+            width: 14px;
+            height: 14px;
+            background: var(--color-idle);
+            border-radius: 50%;
+            opacity: 0.3;
+            animation: thinking-pulse 1.4s infinite;
+        }
+
+        .thinking-dot:nth-child(1) { animation-delay: 0s; }
+        .thinking-dot:nth-child(2) { animation-delay: 0.2s; }
+        .thinking-dot:nth-child(3) { animation-delay: 0.4s; }
+
+        @keyframes thinking-pulse {
+            0%, 100% { opacity: 0.3; transform: scale(1); }
+            50% { opacity: 1; transform: scale(1.3); }
+        }
+
+        .nova-visualizer {
+            position: fixed;
+            bottom: 30px;
+            left: 30px;
+            width: 193px;
+            height: 193px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.8s ease;
+            z-index: 150;
+            pointer-events: none;
+        }
+
+        .core-orb {
+            width: 123px;
+            height: 123px;
+            background: var(--color-idle);
+            border-radius: 50%;
+            box-shadow: 
+                0 0 0 8px rgba(59, 130, 246, 0.3),
+                0 0 25px var(--color-idle),
+                0 0 50px rgba(59, 130, 246, 0.6),
+                0 0 75px rgba(59, 130, 246, 0.3);
+            position: relative;
+            z-index: 5;
+            transition: all 0.8s ease;
+        }
+
+
+
+
+footer {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 100;
+    
+    background: transparent; 
+
+    display: flex;
+    flex-direction: column; 
+    align-items: flex-start; 
+    gap: 10px; 
+
+    padding: 0px 80px 35px 265px; 
+    
+    pointer-events: none;
+    transform: translateY(0);
+    transition: transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+footer::before {
+    content: '';
+    position: absolute;
+    bottom: 0; left: 0; right: 0; height: 160px;
+    z-index: -1;
+    background-image: radial-gradient(rgba(62, 62, 62, 0.3) 1.5px, transparent 5px);
+    background-size: 15px 15px;
+    mask-image: linear-gradient(to top, rgba(0, 0, 0, 0) 10%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to top, black 10%, transparent 100%);
+    pointer-events: none;
+}
+
+.hint {
+    font-size: 16px;
+    color: rgba(255, 255, 255, 0.4);
+    font-style: italic;
+    pointer-events: none;
+    
+    /* Pushes hint slightly right to align with text inside the bubble */
+    margin-left: 10px; 
+    margin-top: 0px;
+}       
+
+
+
+        footer.slide-up {
+            animation: footer-slide-up 1s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+
+        @keyframes footer-slide-up {
+            from { transform: translateY(200px); }
+            to { transform: translateY(0); }
+        }
+
+        .listening-indicator {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            background: rgba(15, 23, 42, 0.172);
+            backdrop-filter: blur(1.2s);
+            padding: 12px 20px;
+            border-radius: 100px;
+            border: 1px solid rgba(255, 255, 255, 0.327);
+            transition: all 0.3s ease;
+            pointer-events: auto;
+        }
+
+        .listening-indicator.active {
+            background: rgba(59, 130, 246, 0.15);
+            border-color: var(--color-idle);
+        }
+
+        .pulse-dot {
+            width: 21px;
+            height: 21px;
+            background: var(--text-dim);
+            border-radius: 50%;
+            transition: all 0.5s ease;
+        }
+
+        .pulse-dot.active {
+            animation: pulse 2.5s infinite;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(1); box-shadow: 0 0 0 0 currentColor; }
+            70% { transform: scale(1.3); box-shadow: 0 0 0 12px transparent; }
+            100% { transform: scale(1); box-shadow: 0 0 0 0 transparent; }
+        }
+
+        .status-text {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 22px;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            transition: color 0.3s ease;
+        }
+
+        .status-text.active {
+            color: var(--color-idle);
+        }
+
+        .hint {
+            font-size: 19px;
+            color: rgba(121, 121, 121, 0.472);
+            font-style: italic;
+            pointer-events: none;
+        }
+
+        .input-glow {
+            position: absolute;
+            bottom: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 40%;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, var(--color-idle), transparent);
+            filter: blur(4px);
+            opacity: 0;
+            transition: all 0.5s ease;
+            pointer-events: none;
+        }
+
+        .input-glow.active {
+            opacity: 1;
+        }
+
+        .nova-visualizer.idle .core-orb {
+            animation: orb-idle 6s ease-in-out infinite;
+            background: var(--color-idle);
+            box-shadow: 
+                0 0 0 8px rgba(59, 130, 246, 0.3),
+                0 0 25px var(--color-idle),
+                0 0 50px rgba(59, 130, 246, 0.6),
+                0 0 75px rgba(59, 130, 246, 0.3);
+        }
+
+        .nova-visualizer.listening .core-orb {
+            animation: orb-listen 3s ease-in-out infinite;
+            background: var(--color-listening);
+            box-shadow: 
+                0 0 0 8px rgba(249, 115, 22, 0.3),
+                0 0 25px var(--color-listening),
+                0 0 50px rgba(249, 115, 22, 0.6),
+                0 0 75px rgba(249, 115, 22, 0.3);
+        }
+
+        .nova-visualizer.processing .core-orb {
+            animation: orb-process 4s ease-in-out infinite;
+            background: var(--color-processing);
+            box-shadow: 
+                0 0 0 8px rgba(168, 85, 247, 0.3),
+                0 0 25px var(--color-processing),
+                0 0 50px rgba(168, 85, 247, 0.6),
+                0 0 75px rgba(168, 85, 247, 0.3);
+        }
+
+        .nova-visualizer.speaking .core-orb {
+            animation: orb-speak 2.5s ease-in-out infinite;
+            background: var(--color-speaking);
+            box-shadow: 
+                0 0 0 8px rgba(16, 185, 129, 0.3),
+                0 0 25px var(--color-speaking),
+                0 0 50px rgba(16, 185, 129, 0.6),
+                0 0 75px rgba(16, 185, 129, 0.3);
+        }
+
+        @keyframes orb-idle {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+
+        @keyframes orb-listen {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+        }
+
+        @keyframes orb-process {
+            0%, 100% { transform: scale(1) rotate(0deg); }
+            50% { transform: scale(1.08) rotate(5deg); }
+        }
+
+        @keyframes orb-speak {
+            0%, 100% { transform: scale(1); }
+            33% { transform: scale(1.12); }
+            66% { transform: scale(0.98); }
+        }
+
+    </style>
+</head>
+<body>
+
+    <div id="app-canvas">
+        <div class="color-wave" id="color-wave"></div>
+
+        <div class="fluid-layer" id="fluid-layer">
+            <div class="blob blob-1"></div>
+            <div class="blob blob-2"></div>
+            <div class="blob blob-3"></div>
+        </div>
+
+        <header>
+            <div class="brand">
+                <div class="brand-decorator">
+                    <div class="decorator-shape" id="decorator-shape"></div>
+                </div>
+                <div class="brand-text">
+                    <h1>NOVA</h1>
+                </div>
+            </div>
+            <div class="uf-tag">UF // COMPUTATIONAL REASONING GROUP</div>
+        </header>
+
+        <main>
+            <div id="conversation-container"></div>
+        </main>
+
+        <div class="scroll-to-bottom" id="scroll-to-bottom"></div>
+
+        <div class="nova-visualizer idle" id="nova-viz">
+            <div class="core-orb" id="core-orb"></div>
+        </div>
+
+        <div class="thinking-indicator" id="thinking-indicator" style="display: none;">
+            <div class="thinking-dot"></div>
+            <div class="thinking-dot"></div>
+            <div class="thinking-dot"></div>
+        </div>
+
+        <footer id="footer">
+            <div class="listening-indicator" id="status-indicator">
+                <div class="pulse-dot" id="pulse-dot"></div>
+                <span class="status-text" id="status-display">Initializing...</span>
+            </div>
+            <div class="hint" id="hint-text">Say "Hey Nova" to start...</div>
+            <div class="input-glow" id="input-glow"></div>
+        </footer>
+    </div>
+
+    <script>
+(function() {
+    'use strict';
+
+    var socket = io();
+
+    var container = document.getElementById('conversation-container');
+    var statusDisplay = document.getElementById('status-display');
+    var statusIndicator = document.getElementById('status-indicator');
+    var pulseDot = document.getElementById('pulse-dot');
+    var novaViz = document.getElementById('nova-viz');
+    var coreOrb = document.getElementById('core-orb');
+    var inputGlow = document.getElementById('input-glow');
+    var hintText = document.getElementById('hint-text');
+    var colorWave = document.getElementById('color-wave');
+    var fluidLayer = document.getElementById('fluid-layer');
+    var decoratorShape = document.getElementById('decorator-shape');
+    var scrollToBottomBtn = document.getElementById('scroll-to-bottom');
+    var footer = document.getElementById('footer');
+    var thinkingIndicator = document.getElementById('thinking-indicator');
+
+    var currentState = 'idle';
+    var messageDelay = 0;
+    var isTyping = false;
+    var hasInteracted = false;
+    var slowScrollRAF = null;
+
+    var statusMessages = {
+        'idle': 'Awaiting Input',
+        'listening': 'Listening...',
+        'processing': 'Processing...',
+        'speaking': 'Speaking...'
+    };
+
+    var stateColors = {
+        'idle': '#3b82f6',
+        'listening': '#f97316',
+        'processing': '#a855f7',
+        'speaking': '#10b981'
+    };
+
+    function triggerFirstInteraction() {
+        if (!hasInteracted) {
+            hasInteracted = true;
+            footer.classList.add('slide-up');
+        }
+    }
+
+    function triggerColorWave(color) {
+        document.documentElement.style.setProperty('--current-state-color', color);
+        colorWave.classList.remove('active');
+        void colorWave.offsetWidth;
+        colorWave.classList.add('active');
+    }
+
+    container.addEventListener('scroll', function() {
+        var isAtBottom = container.scrollHeight - container.scrollTop <= container.clientHeight + 50;
+        if (isAtBottom) {
+            scrollToBottomBtn.classList.remove('visible');
+        } else {
+            scrollToBottomBtn.classList.add('visible');
+        }
+    });
+
+    scrollToBottomBtn.addEventListener('click', function() {
+        container.scrollTo({
+            top: container.scrollHeight,
+            behavior: 'smooth'
+        });
+    });
+
+    socket.on('status_change', function(data) {
+        console.log('Status changed:', data.status);
+        triggerFirstInteraction();
+
+        if (data.status === 'listening' || data.status === 'speaking') {
+            var newColor = stateColors[data.status];
+            triggerColorWave(newColor);
+        }
+
+        currentState = data.status;
+        updateUIState(data.status);
+    });
+
+    socket.on('update_text', function(data) {
+        console.log('=== NEW MESSAGE RECEIVED ===');
+        console.log('Sender:', data.sender);
+        console.log('Raw text:', data.text);
+
+        if (data.sender === 'nova') {
+            thinkingIndicator.style.display = 'none';
+        }
+
+        setTimeout(function() {
+            addMessage(data.text, data.sender);
+        }, messageDelay);
+
+        messageDelay += 800;
+
+        setTimeout(function() {
+            messageDelay = 0;
+        }, 3000);
+    });
+
+    function updateUIState(state) {
+        statusDisplay.textContent = statusMessages[state] || state.toUpperCase();
+
+        novaViz.classList.remove('idle', 'listening', 'processing', 'speaking');
+        statusIndicator.classList.remove('active');
+        statusDisplay.classList.remove('active');
+        pulseDot.classList.remove('active');
+        inputGlow.classList.remove('active');
+        decoratorShape.classList.remove('listening', 'processing', 'speaking');
+        fluidLayer.classList.remove('listening', 'processing');
+
+        novaViz.classList.add(state);
+
+        var color = stateColors[state] || stateColors.idle;
+        document.documentElement.style.setProperty('--current-state-color', color);
+        pulseDot.style.backgroundColor = color;
+        pulseDot.style.color = color;
+        inputGlow.style.background = 'linear-gradient(90deg, transparent, ' + color + ', transparent)';
+
+        switch(state) {
+            case 'idle':
+                hintText.textContent = 'Say "Hey Nova" to start...';
+                thinkingIndicator.style.display = 'none';
+                break;
+            case 'listening':
+                statusIndicator.classList.add('active');
+                statusDisplay.classList.add('active');
+                pulseDot.classList.add('active');
+                inputGlow.classList.add('active');
+                decoratorShape.classList.add('listening');
+                fluidLayer.classList.add('listening');
+                hintText.textContent = 'Listening to your question...';
+                thinkingIndicator.style.display = 'none';
+                break;
+            case 'processing':
+                decoratorShape.classList.add('processing');
+                fluidLayer.classList.add('processing');
+                hintText.textContent = 'Analyzing your question...';
+                thinkingIndicator.style.display = 'flex';
+                break;
+            case 'speaking':
+                decoratorShape.classList.add('speaking');
+                hintText.textContent = 'Nova is responding...';
+                thinkingIndicator.style.display = 'none';
+                break;
+        }
+    }
+    function startSlowScroll() {
+        // Cancel any in-progress scroll animation before starting a new one
+        if (slowScrollRAF) {
+            cancelAnimationFrame(slowScrollRAF);
+            slowScrollRAF = null;
+        }
+
+        function step() {
+            var target = container.scrollHeight - container.clientHeight;
+            var current = container.scrollTop;
+            var distance = target - current;
+
+            if (distance > 1) {
+                // Move 2.5% of the remaining gap each frame — slow and smooth.
+                // Math.max(1, ...) ensures we always move at least 1px so we
+                // never get stuck inching toward the target forever.
+                container.scrollTop += Math.max(1, distance * 0.05);
+                slowScrollRAF = requestAnimationFrame(step);
+            } else {
+                // Reached the bottom — stop the loop
+                slowScrollRAF = null;
+            }
+        }
+
+        slowScrollRAF = requestAnimationFrame(step);
+    }
+
+
+
+    function parseTextFormatting(text) {
+        var parts = [];
+        var i = 0;
+        var currentText = '';
+
+        while (i < text.length) {
+            var char = text[i];
+            var nextChar = (i + 1 < text.length) ? text[i + 1] : '';
+
+            if (char === '*' && nextChar === '*') {
+                
+                if (currentText.length > 0) {
+                    parts.push({type: 'text', content: currentText});
+                    currentText = '';
+                }
+
+                var searchStart = i + 2;
+                var endIndex = -1;
+
+                for (var j = searchStart; j < text.length - 1; j++) {
+                    if (text[j] === '*' && text[j + 1] === '*') {
+                        endIndex = j;
+                        break;
+                    }
+                }
+
+                if (endIndex !== -1) {
+                    var emphContent = text.substring(i + 2, endIndex);
+                    parts.push({type: 'emphasis', content: emphContent});
+                    i = endIndex + 2;
+                    continue;
+                } else {
+                    currentText += char;
+                    i++;
+                }
+            }
+            else if (char === '<') {
+                if (currentText.length > 0) {
+                    parts.push({type: 'text', content: currentText});
+                    currentText = '';
+                }
+
+                var endIndex = text.indexOf('>', i + 1);
+
+                if (endIndex !== -1) {
+                    var italicContent = text.substring(i + 1, endIndex);
+                    parts.push({type: 'italic', content: italicContent});
+                    i = endIndex + 1;
+                    continue;
+                } else {
+                    currentText += char;
+                    i++;
+                }
+            }
+            else {
+                currentText += char;
+                i++;
+            }
+        }
+
+        if (currentText.length > 0) {
+            parts.push({type: 'text', content: currentText});
+        }
+
+        return parts;
+    }
+
+    function createFormattedElement(part) {
+        var elem = document.createElement('span');
+        elem.className = 'text-chunk';
+
+        if (part.type === 'emphasis') {
+            var emphSpan = document.createElement('span');
+            emphSpan.className = 'emphasis';
+            emphSpan.textContent = part.content;
+            elem.appendChild(emphSpan);
+        } else if (part.type === 'italic') {
+            var italicSpan = document.createElement('span');
+            italicSpan.className = 'italic';
+            italicSpan.textContent = part.content;
+            elem.appendChild(italicSpan);
+        } else {
+            elem.textContent = part.content;
+        }
+
+        return elem;
+    }
+
+    function fadeInText(element, text, delay) {
+        return new Promise(function(resolve) {
+            var parts = parseTextFormatting(text);
+            var index = 0;
+            isTyping = true;
+
+            function addNext() {
+                if (index < parts.length) {
+                    var part = parts[index];
+                    var elem = createFormattedElement(part);
+                    element.appendChild(elem);
+
+                    index++;
+                    container.scrollTo({
+                    
+                });
+                    setTimeout(addNext, delay);
+                } else {
+                    isTyping = false;
+                    resolve();
+                }
+            }
+
+            addNext();
+        });
+    }
+
+    function addMessage(text, sender) {
+        var lastMsg = container.lastElementChild;
+        var isSameSender = false;
+
+        if (lastMsg) {
+            if (sender === 'nova' && lastMsg.classList.contains('msg-nova')) {
+                isSameSender = true;
+            }
+            // We usually don't append student messages, but you could add that logic here if needed
+        }
+
+        // 2. If it is the same sender (Nova), APPEND to the existing bubble
+        if (isSameSender && sender === 'nova') {
+            var contentDiv = lastMsg.querySelector('.msg-content');
+            
+            // Add a leading space if the new text doesn't have one, to prevent "Hello.How are you"
+            var prefix = (text.match(/^\s/) || contentDiv.textContent.match(/\s$/)) ? "" : " ";
+            
+            // Use your existing animation function on the NEW text only
+            fadeInText(contentDiv, prefix + text, 150);
+            startSlowScroll();
+            
+        } 
+        // 3. Otherwise, create a NEW bubble (This is your original code)
+        else {
+            var messageDiv = document.createElement('div');
+            messageDiv.className = sender === 'nova' ? 'message msg-nova' : 'message msg-student';
+
+            var label = sender === 'nova' ? 'Nova' : 'Student';
+            var labelSpan = document.createElement('span');
+            labelSpan.className = 'msg-label';
+            labelSpan.textContent = label;
+
+            var contentDiv = document.createElement('div');
+            contentDiv.className = 'msg-content';
+
+            messageDiv.appendChild(labelSpan);
+            messageDiv.appendChild(contentDiv);
+            container.appendChild(messageDiv);
+
+            // Scroll down
+            setTimeout(function() {
+                container.scrollTo({
+                    top: container.scrollHeight,
+                    behavior: 'smooth'
+                });
+            }, 100);
+
+            if (sender === 'nova') {
+
+                fadeInText(contentDiv, text, 100);
+                setTimeout(function() {
+                    startSlowScroll();
+                }, 150);
+            } else {
+                // 3. STUDENT: Show text instantly
+                contentDiv.textContent = text;
+                
+                // Scroll to bottom ensuring the student's text is visible
+                setTimeout(function() {
+                    container.scrollTo({
+                        top: container.scrollHeight,
+                        behavior: 'smooth'
+                    });
+                }, 100);
+            }
+        }
+    }
+
+    socket.on('connect', function() {
+        console.log('Connected to Nova server');
+    });
+
+    socket.on('disconnect', function() {
+        console.log('Disconnected from Nova server');
+        statusDisplay.textContent = 'Connection Lost';
+        hintText.textContent = 'Reconnecting...';
+    });
+
+    console.log('Nova UI initialized');
+    updateUIState('idle');
+})();
+    </script>
+
+</body>
+</html>
