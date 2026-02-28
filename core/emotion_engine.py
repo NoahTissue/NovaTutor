@@ -9,6 +9,7 @@ from deepface import DeepFace
 
 class EmotionEngine:
     def __init__(self, history_size=10, scan_interval=3):
+        self.fail_count = 0
         self.history = deque(maxlen=history_size)
         self.scan_interval = scan_interval
         self._lock = threading.Lock()
@@ -187,7 +188,7 @@ class EmotionEngine:
         while self._running and self._get_fresh_frame() is None:
             time.sleep(0.1)
 
-        print("[EmotionEngine] Loading DeepFace model (first-time only)...")
+        print("[EmotionEngine] Loading DeepFace model (first time)...")
         try:
             warmup_frame = self._get_fresh_frame()
             if warmup_frame is not None:
@@ -229,12 +230,24 @@ class EmotionEngine:
 
                 # Reject readings with no real face detected
                 if face_area == 0 or face_area > (frame_area * 0.90) or face_area < 100:
-                    print(f"[EmotionEngine] No real face detected (region {face_w}x{face_h}). Skipping.")
-                    time.sleep(self.scan_interval)
+                    print(f"[EmotionEngine] No real face detected (region {face_w}x{face_h}). Skipping. \n Fail Count: {self.fail_count}")
+                    self.fail_count += 1
+
+                    if self.fail_count >= 10: 
+                        time.sleep(15)
+                    elif self.fail_count >= 5:
+                        time.sleep(7)
+                    else:
+                        time.sleep(self.scan_interval)
+                    
                     continue
+
+                else: self.fail_count = 0
 
                 emotion    = result['dominant_emotion']
                 confidence = round(result['emotion'][emotion], 2)
+
+                
 
                 if confidence >= MIN_CONFIDENCE:
                     reading = {
