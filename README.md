@@ -1,4 +1,4 @@
-# 🤖 Nova: AI Personal Learning Assistant
+# Nova: AI Personal Learning Assistant
 
 **University of Florida | Computational Reasoning Group** 
 ## About The Project
